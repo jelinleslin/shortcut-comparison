@@ -39,14 +39,21 @@ class Reporter:
     def print_row(self, row):
         if self.out == "stdout":
             if self.use_perf:
-                insn_per_cycle = row["instructions"]/row["cycles"]
+                # Handle division by zero in case cycles is zero
+                if row["cycles"] == 0:
+                    insn_per_cycle = 0  # Default value or another appropriate handling
+                else:
+                    insn_per_cycle = row["instructions"] / row["cycles"]
                 print("{:8d}{:12d}{:15d}{:15d}{:10.2f}{:12.2f}".format(*row.values(), insn_per_cycle))
             else:
                 print("{:8d}{:12d}{:15d}{:10.2f}".format(*row.values()))
         elif self.out == "csv":
             with open(self.output_path, "a") as f:
                 writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+                if self.use_perf and row["cycles"] > 0:  # Ensure cycles is greater than 0
+                    row["insn_per_cycle"] = row["instructions"] / row["cycles"]
                 writer.writerow(row)
+
 
     def print_header(self, clear_file=False):
         if self.out == "stdout":
@@ -63,12 +70,24 @@ class Reporter:
 def parse_perf_csv(s):
     if "You may not have permission to collect stats" in s:
         raise PerfToolException
-    def get_value(key):
-        return s.partition(key)[0].splitlines()[-1].rstrip(',')
+
+    # Helper function to extract values for specific metrics
+    def get_value(metric, default=0):
+        for line in s.splitlines():
+            if metric in line:
+                try:
+                    # Assuming the value is always before the metric name and separated by a comma
+                    return int(line.split(',')[0])
+                except ValueError:
+                    # Attempt to convert to float if int conversion fails, useful for time in seconds
+                    return int(float(line.split(',')[0]) * 1e6)  # Convert seconds to microseconds
+        return default
+
+    # Adjusted to search for specific metrics and handle potential ValueError
     return collections.OrderedDict((
-        ("time (us)", int(1e6*float(s.splitlines()[1]))),
-        ("instructions", int(get_value("instructions"))),
-        ("cycles", int(get_value("cycles"))),
+        ("time (us)", get_value("task-clock", default=1e6)),  # Fallback default value
+        ("instructions", get_value("instructions")),
+        ("cycles", get_value("cycles")),
     ))
 
 
